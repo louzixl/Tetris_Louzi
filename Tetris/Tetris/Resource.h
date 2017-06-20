@@ -16,6 +16,8 @@
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1
+#define ID_START                666
+#define ID_SCORE                777
 #endif
 // 新对象的下一组默认值
 //

@@ -35,17 +35,24 @@ int g_curType;
 int g_nextType;
 int g_gameBoard[g_numY][g_numX];
 int g_score;
+wchar_t g_bufferScore[20];
+bool g_bStart;
+bool g_bLock;
+HWND g_hNext, g_hStart, g_hScore, g_hTextScore, g_hInfo, g_hInfoBox;
 
 //函数声明
 void Align(HWND hWnd, int &x, int &y, int &w, int &h);
 void DrawBK(HDC hDc);
+void DrawInfo(HDC hDc);
 void InitTetris();
 void DrawSquare(HDC hDc, int x, int y);
 void RotateSquare();
 void ClearEmptyCol(int square[4][4], int num);
 int CheckOutside(int square[][4], int x, int y);
-void RefreshBoard(int square[][4], int x, int y);
-void ClearLine(int gameArea[20][10]);
+void RefreshBoard(HWND hWnd, int square[][4], int x, int y);
+void ClearLine(HWND hWnd, int gameArea[20][10]);
+void gameStart(HWND hWnd);
+void gameOver(HWND hWnd);
 
 // 此代码模块中包含的函数的前向声明: 
 ATOM				MyRegisterClass(HINSTANCE hInstance);
@@ -163,8 +170,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	int wmId, wmEvent;
 	PAINTSTRUCT ps;
-	HDC hdc;
-	HDC memDc;
+	HDC hdc, memDc;
 	HBITMAP bitmap, oldmap;
 	int startX, startY;
 	int width, height;
@@ -174,8 +180,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_CREATE:
 		Align(hWnd, startX, startY, width, height);
 		MoveWindow(hWnd, startX, startY, width, height, TRUE);
+		g_hNext = CreateWindow(L"STATIC", L"Next", WS_CHILD | SS_CENTER | BS_CENTER | WS_VISIBLE, 380, 40, 60, 25, 
+			hWnd, NULL, GetModuleHandle(NULL), NULL);
+		/*ShowWindow(g_hNext, SW_SHOWNORMAL);*/
+		g_hStart = CreateWindow(L"BUTTON", L"Stop", WS_CHILD | BS_FLAT | WS_VISIBLE, 380, 240, 60, 30,
+			hWnd, (HMENU)ID_START, GetModuleHandle(NULL), NULL);
+		/*ShowWindow(g_hStart, SW_SHOWNORMAL);*/
+		g_hScore = CreateWindow(L"STATIC", L"Score", WS_CHILD | SS_CENTER | BS_CENTER | WS_VISIBLE, 380, 300, 60, 25,
+			hWnd, NULL, GetModuleHandle(NULL), NULL);
+		/*ShowWindow(g_hScore, SW_SHOWNORMAL);*/
+		g_hTextScore = CreateWindow(L"EDIT", L"0", WS_CHILD | ES_CENTER | WS_VISIBLE, 350, 330, 120, 25,
+			hWnd, (HMENU)ID_SCORE, GetModuleHandle(NULL), NULL);
+		/*ShowWindow(g_hTextScore, SW_SHOWNORMAL);*/
+		g_hInfo = CreateWindow(L"STATIC", L"PlayerInfo", WS_CHILD | SS_CENTER | BS_CENTER | WS_VISIBLE, 350, 390, 120, 25,
+			hWnd, NULL, GetModuleHandle(NULL), NULL);
+		g_hInfoBox = CreateWindow(L"STATIC", L"Name:\n\nScore:\n\nHigh:\n\nTime:", WS_CHILD | ES_LEFT | WS_VISIBLE,
+			325, 430, 169, 119, hWnd, NULL, GetModuleHandle(NULL), NULL);
 		InitTetris();
 		SetTimer(hWnd, 1, 1000, NULL);
+		g_bStart = true;
+		g_bLock = false;
 		break;
 	case WM_COMMAND:
 		wmId    = LOWORD(wParam);
@@ -183,6 +207,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		// 分析菜单选择: 
 		switch (wmId)
 		{
+		case ID_START:
+			gameStart(hWnd);
+			break;
 		case IDM_ABOUT:
 			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
 			break;
@@ -195,38 +222,54 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 	case WM_TIMER:
 		if (CheckOutside(g_curSquare, g_squareX, g_squareY + 1) == 2)
-			RefreshBoard(g_curSquare, g_squareX, g_squareY);
+			RefreshBoard(hWnd, g_curSquare, g_squareX, g_squareY);
 		else
 			g_squareY++;
 		InvalidateRect(hWnd, NULL, FALSE);
 		break;
 	case WM_LBUTTONDOWN:
-		RotateSquare();
-		InvalidateRect(hWnd, NULL, FALSE);
+		if (!g_bLock)
+		{
+			RotateSquare();
+			InvalidateRect(hWnd, NULL, FALSE);
+		}
 		break;
 	case WM_KEYDOWN:
 		switch (wParam)
 		{
 		case VK_LEFT:
-			if (CheckOutside(g_curSquare, g_squareX-1, g_squareY))
-				MessageBeep(MB_ICONERROR);
-			else
-				g_squareX--;
+			if (!g_bLock)
+			{
+				if (CheckOutside(g_curSquare, g_squareX - 1, g_squareY))
+					MessageBeep(MB_ICONERROR);
+				else
+					g_squareX--;
+			}
 			break;
 		case VK_RIGHT:
-			if (CheckOutside(g_curSquare, g_squareX+1, g_squareY))
-				MessageBeep(MB_ICONERROR);
-			else
-				g_squareX++;
+			if (!g_bLock)
+			{
+				if (CheckOutside(g_curSquare, g_squareX + 1, g_squareY))
+					MessageBeep(MB_ICONERROR);
+				else
+					g_squareX++;
+			}
 			break;
 		case VK_DOWN:
-			if (CheckOutside(g_curSquare, g_squareX, g_squareY + 1) == 2)
-				RefreshBoard(g_curSquare, g_squareX, g_squareY);
-			else
-				g_squareY++;
+			if (!g_bLock)
+			{
+				if (CheckOutside(g_curSquare, g_squareX, g_squareY + 1) == 2)
+					RefreshBoard(hWnd, g_curSquare, g_squareX, g_squareY);
+				else
+					g_squareY++;
+			}
 			break;
 		case VK_UP:
-			RotateSquare();
+			if (!g_bLock)
+				RotateSquare();
+			break;
+		case VK_SPACE:
+			gameStart(hWnd);
 			break;
 		default:
 			break;
@@ -240,6 +283,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		bitmap = CreateCompatibleBitmap(hdc, 510, 620);
 		oldmap = (HBITMAP)SelectObject(memDc, bitmap);
 		DrawBK(memDc);
+		DrawInfo(memDc);
 		DrawSquare(memDc, g_squareX, g_squareY);
 		BitBlt(hdc, 0, 0, 510, 620, memDc, 0, 0, SRCCOPY);
 		SelectObject(memDc, oldmap);
@@ -315,9 +359,7 @@ void DrawBK(HDC hDc)
 	SelectObject(hDc, penBoard);
 	Rectangle(hDc, g_board, g_board, 
 		g_board + g_side*g_numX, g_board + g_side*g_numY);
-	Rectangle(hDc, g_board * 2 + g_side*g_numX, g_board, 
-		g_board*2 + g_side*(g_numX + g_numXInfo), g_board + g_side*g_numY);
-
+	DeleteObject(penBoard);
 	SelectObject(hDc, penGrid);
 	for (i = 0; i < g_numY; i++)
 	{
@@ -331,6 +373,51 @@ void DrawBK(HDC hDc)
 				g_board + g_side*(j + 1), g_board + g_side*(i + 1));
 		}
 	}
+	DeleteObject(penGrid);
+	DeleteObject(brushDef);
+	DeleteObject(brushGrid);
+}
+
+void DrawInfo(HDC hDc)
+{
+	int i, j;
+	HPEN penBoard = CreatePen(BS_SOLID, 3, RGB(0, 0, 255));
+	HPEN penNext = CreatePen(BS_SOLID, 2, RGB(255, 0, 255));
+	HPEN penSquare = CreatePen(BS_SOLID, 2, RGB(255, 255, 255));
+	HBRUSH brushDef = (HBRUSH)GetStockObject(WHITE_BRUSH);
+	HBRUSH brushSquare = CreateSolidBrush(RGB(255, 255, 0));
+	SelectObject(hDc, penBoard);
+	SelectObject(hDc, brushDef);
+
+	Rectangle(hDc, g_board * 2 + g_side*g_numX, g_board,
+		g_board * 2 + g_side*(g_numX + g_numXInfo), g_board + g_side*g_numY);
+	DeleteObject(penBoard);
+	SelectObject(hDc, penNext);
+	Rectangle(hDc, g_board * 2 + g_side*(g_numX + 1) - 5, g_board + g_side * 2,
+		g_board * 2 + g_side*(g_numX + 5) + 10, g_board + g_side * 6 + 10);
+
+	SelectObject(hDc, penSquare);
+	SelectObject(hDc, brushSquare);
+	for (i = 0; i < 4; i++)
+	{
+		for (j = 0; j < 4; j++)
+		{
+			if (g_nextSquare[i][j])
+			{
+				Rectangle(hDc, g_board * 2 + g_side*(g_numX + 1 + j) + 5, g_board + g_side * (2 + i) + 5,
+					g_board * 2 + g_side*(g_numX + 2 + j) + 5, g_board + g_side * (3 + i) + 5);
+			}
+		}
+	}
+	DeleteObject(penSquare);
+	DeleteObject(brushSquare);
+	
+	SelectObject(hDc, penNext);
+	SelectObject(hDc, brushDef);
+	Rectangle(hDc, g_board * 2 + g_side*g_numX + 5, g_board + g_side * 14,
+		g_board * 2 + g_side*(g_numX + g_numXInfo) - 5, g_board + g_side * 18);	
+	DeleteObject(penNext);
+	DeleteObject(brushDef);
 }
 
 /*
@@ -364,6 +451,7 @@ void InitTetris()
 	}
 
 	ZeroMemory(g_gameBoard, sizeof(g_gameBoard));
+	ZeroMemory(g_bufferScore, sizeof(g_bufferScore));
 
 	g_squareX = g_startX;
 	g_squareY = g_startY;
@@ -377,10 +465,12 @@ void InitTetris()
 */
 void DrawSquare(HDC hDc, int x, int y)
 {
+	int i, j;
 	HPEN penSquare = (HPEN)GetStockObject(WHITE_PEN);
 	HBRUSH brushSquare = CreateSolidBrush(GRAY_BRUSH);
 
-	int i, j;
+	SelectObject(hDc, penSquare);
+	SelectObject(hDc, brushSquare);
 
 	for (i = 0; i < 4; i++)
 	{
@@ -388,13 +478,13 @@ void DrawSquare(HDC hDc, int x, int y)
 		{
 			if (g_curSquare[i][j])
 			{
-				SelectObject(hDc, penSquare);
-				SelectObject(hDc, brushSquare);
 				Rectangle(hDc, g_board + g_side*(x+j), g_board + g_side*(y+i),
 					g_board + g_side*(x + j + 1), g_board + g_side*(y + i + 1));
 			}
 		}
 	}
+	DeleteObject(penSquare);
+	DeleteObject(brushSquare);
 }
 
 /*
@@ -496,7 +586,7 @@ int CheckOutside(int square[4][4], int x, int y)
 * @param x      方块起始坐标X
 * @param y      方块起始坐标y
 */
-void RefreshBoard(int square[][4], int x, int y)
+void RefreshBoard(HWND hWnd, int square[][4], int x, int y)
 {
 	int i, j;
 	srand(time(0));
@@ -510,7 +600,9 @@ void RefreshBoard(int square[][4], int x, int y)
 		}
 	}
 
-	ClearLine(g_gameBoard);
+	ClearLine(hWnd, g_gameBoard);
+	wsprintf(g_bufferScore, L"%d", g_score);
+	SetWindowText(g_hTextScore, g_bufferScore);
 	memcpy(g_curSquare, g_nextSquare, sizeof(g_nextSquare));
 	g_curType = g_nextType;
 	g_nextType = rand() % 7;
@@ -527,7 +619,11 @@ void RefreshBoard(int square[][4], int x, int y)
 	g_squareY = g_startY;
 }
 
-void ClearLine(int gameArea[20][10])
+/*
+* @description    消除空行
+* @param gameArea 游戏区域
+*/
+void ClearLine(HWND hWnd, int gameArea[20][10])
 {
 	int i, j, k, t, n, temp;
 	int fullLineIndex[g_numY] = { 0 };
@@ -552,6 +648,12 @@ void ClearLine(int gameArea[20][10])
 		}
 	}
 
+	if (i <= 0)
+	{
+		gameOver(hWnd);
+		return;
+	}
+
 	for (j = k-1; j >= 0; j--)
 	{
 		for (t = fullLineIndex[j]; t > i-1; t--)
@@ -565,5 +667,55 @@ void ClearLine(int gameArea[20][10])
 		{
 			g_gameBoard[i - 1][n] = 0;
 		}
+	}
+}
+
+/*
+* @description 控制开始暂停操作
+* @param hWnd  窗口句柄
+*/
+void gameStart(HWND hWnd)
+{
+	if (g_bStart)
+	{
+		KillTimer(hWnd, 1);
+		SetWindowText(g_hStart, L"Start");
+		g_bStart = false;
+		g_bLock = true;
+	}
+	else
+	{
+		SetTimer(hWnd, 1, 1000, NULL);
+		SetWindowText(g_hStart, L"Stop");
+		g_bStart = true;
+		g_bLock = false;
+	}
+}
+
+/*
+* @description 游戏结束，重新开始或退出
+* @param hWnd  游戏窗口句柄
+*/
+void gameOver(HWND hWnd)
+{
+	KillTimer(hWnd, 1);
+
+	ZeroMemory(g_bufferScore, sizeof(g_bufferScore));
+	ZeroMemory(g_curSquare, sizeof(g_curSquare));
+	ZeroMemory(g_nextSquare, sizeof(g_nextSquare));
+	ZeroMemory(g_gameBoard, sizeof(g_gameBoard));
+
+	InvalidateRect(hWnd, NULL, FALSE);
+	int res = MessageBox(hWnd, L"you lost game, restart a game?", L"result", MB_YESNO);
+	if (res == IDYES)
+	{
+		InitTetris();
+		SetTimer(hWnd, 1, 1000, NULL);
+		g_bStart = true;
+		g_bLock = false;
+	}
+	else
+	{
+		PostQuitMessage(0);
 	}
 }
